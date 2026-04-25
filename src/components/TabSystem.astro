@@ -1,0 +1,120 @@
+---
+/**
+ * <TabSystem />
+ *
+ * Pure-CSS / pure-DOM tab strip used by `GridInstance.astro`. We deliberately
+ * avoid React / Headless UI to keep the bundle to ~zero JS for this component;
+ * tab switching is handled by a tiny inline script below.
+ *
+ * The component is just the tab *strip*: the content panels are rendered by
+ * the parent (so each cell can decide whether to render Monaco, an iframe,
+ * etc.). We wire them up by `data-tab="<id>"` attributes.
+ *
+ * Props:
+ *   - groupId: a unique id within the page (used for ARIA + DOM scoping).
+ *   - tabs:    array of { id, label, icon? } describing each tab.
+ *   - active:  id of the tab to mark active on first render.
+ */
+export interface Tab {
+  id: string;
+  label: string;
+}
+
+export interface Props {
+  groupId: string;
+  tabs: Tab[];
+  active: string;
+}
+
+const { groupId, tabs, active } = Astro.props;
+---
+<div
+  class="tab-strip"
+  role="tablist"
+  data-tab-group={groupId}
+>
+  {tabs.map((t) => (
+    <button
+      type="button"
+      role="tab"
+      data-tab-target={t.id}
+      data-active={t.id === active ? 'true' : 'false'}
+      aria-selected={t.id === active ? 'true' : 'false'}
+      class="tab-btn"
+    >
+      {t.label}
+    </button>
+  ))}
+</div>
+
+<style>
+  .tab-strip {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+  }
+  .tab-btn {
+    padding: 5px 14px;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 5px;
+    border: none;
+    cursor: pointer;
+    transition: background 150ms, color 150ms;
+    color: rgba(255, 255, 255, 0.45);
+    background: transparent;
+    font-family: inherit;
+  }
+  .tab-btn:hover {
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.06);
+  }
+  /* Active tab gets the teal accent */
+  .tab-btn[data-active="true"] {
+    background: #00d4a8;
+    color: #001a14;
+    font-weight: 700;
+  }
+</style>
+
+<script>
+  /**
+   * Wires up *every* tab strip on the page. We delegate clicks at document
+   * level so newly-injected strips (e.g. when duplicating a cell) keep working
+   * without needing to re-bind listeners.
+   */
+  document.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement | null;
+    const btn = target?.closest<HTMLElement>('[data-tab-target]');
+    if (!btn) return;
+
+    const strip = btn.closest<HTMLElement>('[data-tab-group]');
+    if (!strip) return;
+
+    const groupId = strip.dataset.tabGroup!;
+    const newId = btn.dataset.tabTarget!;
+
+    // 1) Update buttons in this strip.
+    strip.querySelectorAll<HTMLElement>('[data-tab-target]').forEach((b) => {
+      const isActive = b.dataset.tabTarget === newId;
+      b.dataset.active = String(isActive);
+      b.setAttribute('aria-selected', String(isActive));
+    });
+
+    // 2) Toggle visibility on every panel that belongs to this group.
+    document
+      .querySelectorAll<HTMLElement>(`[data-tab-panel-group="${groupId}"]`)
+      .forEach((panel) => {
+        panel.hidden = panel.dataset.tabPanel !== newId;
+      });
+
+    // 3) Notify listeners (e.g. lazy-load Monaco, refresh iframe).
+    strip.dispatchEvent(
+      new CustomEvent('tabchange', { bubbles: true, detail: { groupId, tabId: newId } }),
+    );
+  });
+</script>

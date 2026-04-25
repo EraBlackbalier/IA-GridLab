@@ -1,0 +1,289 @@
+---
+/**
+ * <GridInstance />
+ *
+ * One cell of the lab grid. Represents a single AI's submission and exposes
+ * three tabs:
+ *
+ *   1. Prompt   — textarea + "Copy" button.
+ *   2. Code     — textarea (upgraded to Monaco lazily on first open) +
+ *                  "Copy" / "Format" buttons.
+ *   3. Result   — sandboxed iframe rendering the code. Rendered lazily:
+ *                  the srcdoc is only injected when the tab is opened
+ *                  for the first time, and refreshed when the tab is
+ *                  re-opened.
+ *
+ * The component is purely structural — every interaction (tab switching,
+ * autosave, copy/format, fullscreen, etc.) is wired up by the page-level
+ * script in `lab/[id].astro` so we have a single source of truth for state.
+ *
+ * Props:
+ *   - index: 0-based position in the grid (used for stable DOM ids).
+ *   - name:  initial cell label, e.g. "AI #1".
+ *   - prompt / code: initial text content (loaded from localStorage by parent).
+ */
+import TabSystem from './TabSystem.astro';
+
+export interface Props {
+  index: number;
+  name: string;
+  prompt: string;
+  code: string;
+}
+
+const { index, name, prompt, code } = Astro.props;
+const groupId = `cell-${index}`;
+---
+<article
+  class="instance"
+  data-instance-index={index}
+>
+  <!-- ─────── Cell header ─────── -->
+  <header class="cell-header">
+    <span class="cell-index">#{index + 1}</span>
+    <input
+      type="text"
+      class="instance-name cell-name-input"
+      value={name}
+      maxlength="40"
+      aria-label="AI name"
+    />
+    <!-- Action buttons -->
+    <div class="cell-actions">
+      <button type="button" class="action-duplicate cell-action-btn" title="Duplicate cell" aria-label="Duplicate cell">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      </button>
+      <button type="button" class="action-delete cell-action-btn cell-action-del" title="Delete cell" aria-label="Delete cell">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ─────── Tab strip ─────── -->
+  <div class="cell-tab-wrap">
+    <TabSystem
+      groupId={groupId}
+      active="prompt"
+      tabs={[
+        { id: 'prompt', label: 'Prompt' },
+        { id: 'code',   label: 'Code'   },
+        { id: 'result', label: 'Result' },
+      ]}
+    />
+  </div>
+
+  <!-- ─────── Tab panels ─────── -->
+  <div class="cell-panels">
+    <!-- PROMPT panel -->
+    <section class="panel-section" data-tab-panel-group={groupId} data-tab-panel="prompt">
+      <div class="panel-toolbar">
+        <button type="button" class="action-copy-prompt cell-pill-btn">Copy</button>
+      </div>
+      <textarea
+        class="instance-prompt cell-textarea"
+        placeholder="Paste the prompt you sent to this AI…"
+      >{prompt}</textarea>
+    </section>
+
+    <!-- CODE panel -->
+    <section class="panel-section" data-tab-panel-group={groupId} data-tab-panel="code" hidden>
+      <div class="panel-toolbar">
+        <span class="panel-label">HTML / CSS / JS</span>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="action-format cell-pill-btn" title="Pretty-print the code">Format</button>
+          <button type="button" class="action-copy-code cell-pill-btn">Copy</button>
+        </div>
+      </div>
+      <!--
+        Plain textarea by default; upgraded to Monaco lazily on first open.
+        Textarea stays in DOM as source of truth for autosave.
+      -->
+      <div class="instance-code-wrap cell-code-wrap">
+        <textarea
+          class="instance-code cell-textarea"
+          placeholder="<!doctype html>&#10;<html>&#10;  …"
+          spellcheck="false"
+        >{code}</textarea>
+      </div>
+    </section>
+
+    <!-- RESULT panel -->
+    <section class="panel-section" data-tab-panel-group={groupId} data-tab-panel="result" hidden>
+      <div class="panel-toolbar">
+        <span class="panel-label">Sandboxed preview</span>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="action-refresh cell-pill-btn" title="Re-run the code">Refresh</button>
+          <button type="button" class="action-newtab cell-pill-btn">Open</button>
+          <button type="button" class="action-fullscreen cell-pill-btn">Fullscreen</button>
+        </div>
+      </div>
+      <!-- Iframe injected lazily by the page script on first Result tab open. -->
+      <div class="instance-iframe-wrap cell-iframe-wrap"></div>
+    </section>
+  </div>
+</article>
+
+<style>
+  /* ── Glass card ── */
+  .instance {
+    display: flex;
+    flex-direction: column;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  /* ── Cell header ── */
+  .cell-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.25);
+  }
+  .cell-index {
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #00d4a8;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(0, 212, 168, 0.1);
+    border: 1px solid rgba(0, 212, 168, 0.2);
+    white-space: nowrap;
+  }
+  .cell-name-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    outline: none;
+    padding: 3px 6px;
+    border-radius: 4px;
+    transition: background 140ms;
+    min-width: 0;
+  }
+  .cell-name-input:focus { background: rgba(255, 255, 255, 0.06); }
+
+  .cell-actions { display: flex; align-items: center; gap: 2px; }
+  .cell-action-btn {
+    padding: 5px;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.35);
+    cursor: pointer;
+    transition: background 130ms, color 130ms;
+  }
+  .cell-action-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.85);
+  }
+  .cell-action-del:hover {
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+  }
+
+  /* ── Tab strip wrapper ── */
+  .cell-tab-wrap { padding: 10px 12px 0; }
+
+  /* ── Panels container ── */
+  .cell-panels {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 12px 12px;
+    min-height: 280px;
+  }
+  .panel-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Toolbar row inside each panel ── */
+  .panel-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .panel-label {
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    color: rgba(255, 255, 255, 0.3);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+
+  /* ── Pill buttons (Copy / Format / Refresh …) ── */
+  .cell-pill-btn {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.55);
+    cursor: pointer;
+    transition: border-color 130ms, color 130ms, background 130ms;
+    font-family: inherit;
+  }
+  .cell-pill-btn:hover {
+    border-color: rgba(255, 255, 255, 0.3);
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  /* ── Textareas ── */
+  .cell-textarea {
+    flex: 1;
+    width: 100%;
+    min-height: 190px;
+    resize: none;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.85);
+    font-family: 'JetBrains Mono', monospace;
+    outline: none;
+    transition: border-color 150ms;
+  }
+  .cell-textarea::placeholder { color: rgba(255, 255, 255, 0.2); }
+  .cell-textarea:focus { border-color: rgba(0, 212, 168, 0.5); }
+
+  /* ── Code wrap (relative container for Monaco overlay) ── */
+  .cell-code-wrap {
+    flex: 1;
+    position: relative;
+    min-height: 210px;
+  }
+  .cell-code-wrap .cell-textarea {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+    min-height: unset;
+  }
+
+  /* ── iframe wrap ── */
+  .cell-iframe-wrap {
+    flex: 1;
+    min-height: 230px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #fff;
+  }
+  .cell-iframe-wrap iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+</style>

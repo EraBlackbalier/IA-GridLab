@@ -1,0 +1,851 @@
+---
+/**
+ * /lab
+ *
+ * The main lab view. The page is statically pre-rendered with a generic
+ * shell; *all* dynamic behavior happens client-side:
+ *
+ *   - The lab id, `count` and `reto` come from the query string
+ *     (e.g. /lab?id=abc123&count=3&reto=Snake+Game).
+ *   - State is loaded from localStorage (or hydrated from a #s=… share link).
+ *   - View modes (only-code, only-result, only-prompt, focus, compare2) are
+ *     toggled via CSS classes on the <main> element.
+ *
+ * Why a single `/lab` route instead of `/lab/[id]`?
+ *   In `output: 'static'` mode, dynamic routes only emit the paths
+ *   returned by `getStaticPaths()`. Using a query param means a single
+ *   static HTML file works with every possible id, both on the dev
+ *   server and on Vercel — no rewrites required.
+ */
+import Layout from '../../layouts/Layout.astro';
+import GridInstance from '../../components/GridInstance.astro';
+
+// We render 6 instances up-front (the maximum) and let client-side code
+// hide / unhide cells based on the actual `count`. This avoids needing
+// SSR to pre-size the grid.
+const MAX_CELLS = 6;
+const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
+  index: i,
+  name: `AI #${i + 1}`,
+  prompt: '',
+  code: '',
+}));
+---
+<Layout title="Lab — IA GridLab">
+  <!-- Background gradient layer: same radial teal as the landing page.
+       Kept fixed so it never scrolls and remains visible behind the grid. -->
+  <div id="lab-bg" aria-hidden="true"></div>
+  <!-- Starfield canvas: white dot particles that twinkle. Pointer-events:none
+       so every grid interaction is fully unobstructed. -->
+  <canvas id="lab-stars" aria-hidden="true"></canvas>
+
+  <main
+    id="lab-root"
+    class="relative min-h-screen flex flex-col"
+    style="z-index:10;background:transparent"
+    data-view="grid"
+    data-count="3"
+  >
+    <!-- ─────── Top toolbar ─────── -->
+    <header class="lab-header">
+      <div class="lab-header-row">
+        <!-- Logo / back link -->
+        <a href="/" class="lab-brand" title="Back home">
+          <img src="/logo.png" class="lab-logo" alt="IA GridLab logo" />
+          <span class="lab-brand-text">IA<strong>GridLab</strong></span>
+          <span class="lab-powered">powered by <strong>Templee</strong></span>
+        </a>
+
+        <div class="lab-divider"></div>
+
+        <!-- Challenge title (editable) + save indicator -->
+        <div class="lab-title-group">
+          <input
+            id="reto-name"
+            type="text"
+            class="lab-title-input"
+            placeholder="Untitled challenge"
+          />
+          <span id="save-indicator" class="lab-save-indicator"></span>
+        </div>
+
+        <!-- View-mode buttons -->
+        <div class="lab-viewbtns">
+          <button data-view-btn="grid"    class="view-btn">Grid</button>
+          <button data-view-btn="code"    class="view-btn">Code</button>
+          <button data-view-btn="result"  class="view-btn">Result</button>
+          <button data-view-btn="prompt"  class="view-btn">Prompts</button>
+          <button data-view-btn="focus"   class="view-btn">Focus</button>
+          <button data-view-btn="compare" class="view-btn">1v1</button>
+          <span class="lab-sep"></span>
+          <button id="action-share"  class="view-btn">Share</button>
+          <button id="action-export" class="view-btn">Export</button>
+        </div>
+      </div>
+
+      <!-- Sub-toolbar shown in Focus / Compare modes -->
+      <div id="sub-toolbar" class="lab-sub-toolbar hidden">
+        <span id="sub-toolbar-label" class="lab-sub-label"></span>
+        <select id="focus-select" class="lab-select hidden"></select>
+        <select id="compare-a"    class="lab-select hidden"></select>
+        <span   id="compare-vs"   class="lab-sub-label hidden">vs</span>
+        <select id="compare-b"    class="lab-select hidden"></select>
+      </div>
+    </header>
+
+    <!-- ─────── Grid ─────── -->
+    <section
+      id="grid"
+      class="flex-1 p-4 sm:p-6 grid gap-4 grid-cols-1 lg:grid-cols-2 xl:grid-cols-3"
+      style="background:transparent"
+    >
+      {seed.map((s) => (
+        <GridInstance index={s.index} name={s.name} prompt={s.prompt} code={s.code} />
+      ))}
+    </section>
+  </main>
+
+  <!-- Tiny script for the share button, served as a static asset. -->
+  <script src="/share.js" is:inline></script>
+
+  <!--
+    Page-level orchestration script. Kept inline so we can use TS types and
+    tree-shake against the source files via Astro/Vite.
+  -->
+  <script>
+    import {
+      keyFor,
+      loadLab,
+      saveLab,
+      makeEmptyState,
+      reconcileWithParams,
+      encodeState,
+      type LabState,
+    } from '../../lib/storage';
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  Bootstrapping: figure out lab id, read URL params, hydrate state
+     * ────────────────────────────────────────────────────────────────── */
+
+    const url = new URL(location.href);
+
+    /** Lab id from `?id=<id>`. Falls back to "default" so a bookmarked
+     *  /lab without params still loads the user's most recent work. */
+    const labId = url.searchParams.get('id') || 'default';
+    const desiredCount = Math.max(1, Math.min(6, Number(url.searchParams.get('count')) || 3));
+    const desiredReto = url.searchParams.get('reto') ?? '';
+
+    // Priority order:
+    //   1. #s=<base64> share link (if present)
+    //   2. localStorage entry for this id
+    //   3. Empty state seeded from URL params
+    let state: LabState = (() => {
+      // 1. Share link
+      const shared = (window as any).GridLabShare?.readFromHash?.();
+      if (shared) {
+        // Persist immediately so a refresh keeps it.
+        saveLab(labId, shared);
+        return shared as LabState;
+      }
+      // 2. Local
+      const stored = loadLab(labId);
+      if (stored) return reconcileWithParams(stored, desiredCount, desiredReto);
+      // 3. Fresh
+      return makeEmptyState(desiredReto, desiredCount);
+    })();
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  DOM helpers
+     * ────────────────────────────────────────────────────────────────── */
+
+    const $ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = document) =>
+      root.querySelector(sel) as T | null;
+    const $$ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = document) =>
+      Array.from(root.querySelectorAll(sel)) as T[];
+
+    const root = $('#lab-root') as HTMLElement;
+    const grid = $('#grid') as HTMLElement;
+    const cells = $$('.instance', grid);
+
+    /** Returns the cell element at a given index. */
+    const cellAt = (i: number) => cells[i];
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  Render initial state into the DOM
+     * ────────────────────────────────────────────────────────────────── */
+
+    function renderState() {
+      // Reto name in the toolbar.
+      const retoInput = $<HTMLInputElement>('#reto-name');
+      if (retoInput) retoInput.value = state.reto;
+
+      // Show only the first `count` cells.
+      cells.forEach((el, i) => {
+        el.hidden = i >= state.count;
+      });
+      root.dataset.count = String(state.count);
+
+      // Push values into each cell.
+      state.instances.forEach((inst, i) => {
+        const cell = cellAt(i);
+        if (!cell) return;
+        const nameEl = $<HTMLInputElement>('.instance-name', cell);
+        const promptEl = $<HTMLTextAreaElement>('.instance-prompt', cell);
+        const codeEl = $<HTMLTextAreaElement>('.instance-code', cell);
+        if (nameEl) nameEl.value = inst.name;
+        if (promptEl) promptEl.value = inst.prompt;
+        if (codeEl) codeEl.value = inst.code;
+      });
+
+      populateSelectors();
+    }
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  Autosave (debounced @ 2s) + visual indicator
+     * ────────────────────────────────────────────────────────────────── */
+
+    let saveTimer: number | undefined;
+    const indicator = $('#save-indicator') as HTMLElement;
+
+    function scheduleSave() {
+      if (indicator) {
+        indicator.textContent = '• unsaved';
+        indicator.style.opacity = '1';
+      }
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        saveLab(labId, state);
+        if (indicator) {
+          indicator.textContent = 'saved';
+          window.setTimeout(() => {
+            if (indicator) indicator.style.opacity = '0.4';
+          }, 800);
+        }
+      }, 2000);
+    }
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  Wire up cell-level interactions
+     * ────────────────────────────────────────────────────────────────── */
+
+    function wireCell(cell: HTMLElement, index: number) {
+      const nameEl = $<HTMLInputElement>('.instance-name', cell);
+      const promptEl = $<HTMLTextAreaElement>('.instance-prompt', cell);
+      const codeEl = $<HTMLTextAreaElement>('.instance-code', cell);
+
+      nameEl?.addEventListener('input', () => {
+        state.instances[index].name = nameEl.value;
+        populateSelectors();
+        scheduleSave();
+      });
+      promptEl?.addEventListener('input', () => {
+        state.instances[index].prompt = promptEl.value;
+        scheduleSave();
+      });
+      codeEl?.addEventListener('input', () => {
+        state.instances[index].code = codeEl.value;
+        scheduleSave();
+        // Invalidate cached iframe so the next "Result" tab open is fresh.
+        cell.dataset.resultDirty = 'true';
+      });
+
+      // Buttons —————————————————————————————————————————————
+      $('.action-copy-prompt', cell)?.addEventListener('click', () =>
+        copyToClipboard(state.instances[index].prompt),
+      );
+      $('.action-copy-code', cell)?.addEventListener('click', () =>
+        copyToClipboard(state.instances[index].code),
+      );
+      $('.action-format', cell)?.addEventListener('click', () => {
+        const formatted = naiveFormatHtml(state.instances[index].code);
+        state.instances[index].code = formatted;
+        if (codeEl) codeEl.value = formatted;
+        cell.dataset.resultDirty = 'true';
+        scheduleSave();
+      });
+      $('.action-refresh', cell)?.addEventListener('click', () => {
+        cell.dataset.resultDirty = 'true';
+        renderResultIframe(cell, index);
+      });
+      $('.action-newtab', cell)?.addEventListener('click', () => {
+        const blob = new Blob([state.instances[index].code || ''], { type: 'text/html' });
+        window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+      });
+      $('.action-fullscreen', cell)?.addEventListener('click', () => {
+        const wrap = $('.instance-iframe-wrap', cell) as HTMLElement | null;
+        wrap?.requestFullscreen?.();
+      });
+      $('.action-duplicate', cell)?.addEventListener('click', () => duplicateCell(index));
+      $('.action-delete', cell)?.addEventListener('click', () => deleteCell(index));
+
+      // Lazy iframe rendering: only when "Result" tab becomes active.
+      cell.addEventListener('tabchange', (ev: Event) => {
+        const detail = (ev as CustomEvent).detail as { tabId: string };
+        if (detail.tabId === 'result') {
+          renderResultIframe(cell, index);
+        }
+      });
+    }
+    cells.forEach((c, i) => wireCell(c, i));
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  Iframe sandboxed preview (lazy)
+     * ────────────────────────────────────────────────────────────────── */
+
+    function renderResultIframe(cell: HTMLElement, index: number) {
+      const wrap = $('.instance-iframe-wrap', cell) as HTMLElement | null;
+      if (!wrap) return;
+      // Re-create the iframe on every refresh; cheaper than messing with
+      // contentDocument and guarantees scripts re-run cleanly.
+      wrap.innerHTML = '';
+      const iframe = document.createElement('iframe');
+      iframe.className = 'w-full h-full bg-white';
+      iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+      iframe.setAttribute('title', `Preview of ${state.instances[index].name}`);
+      iframe.srcdoc = state.instances[index].code || EMPTY_DOC;
+      wrap.appendChild(iframe);
+      delete cell.dataset.resultDirty;
+    }
+
+    const EMPTY_DOC = `<!doctype html><html><body style="font-family:system-ui;color:#64748b;padding:1rem">Paste code in the "Code" tab to see the result here.</body></html>`;
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  Add / duplicate / delete cells
+     * ────────────────────────────────────────────────────────────────── */
+
+    function duplicateCell(index: number) {
+      if (state.count >= 6) return;
+      const src = state.instances[index];
+      state.instances.splice(index + 1, 0, {
+        name: src.name + ' (copy)',
+        prompt: src.prompt,
+        code: src.code,
+      });
+      state.count = Math.min(6, state.instances.length);
+      renderState();
+      scheduleSave();
+    }
+
+    function deleteCell(index: number) {
+      if (state.count <= 1) return;
+      state.instances.splice(index, 1);
+      state.count = state.instances.length;
+      renderState();
+      scheduleSave();
+    }
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  View modes
+     * ────────────────────────────────────────────────────────────────── */
+
+    const subToolbar = $('#sub-toolbar') as HTMLElement;
+    const subLabel = $('#sub-toolbar-label') as HTMLElement;
+    const focusSel = $<HTMLSelectElement>('#focus-select');
+    const cmpA = $<HTMLSelectElement>('#compare-a');
+    const cmpB = $<HTMLSelectElement>('#compare-b');
+    const cmpVs = $('#compare-vs') as HTMLElement;
+
+    /** Re-fills focus / compare <select>s with current AI names. */
+    function populateSelectors() {
+      const opts = state.instances
+        .map((inst, i) => `<option value="${i}">${escapeHtml(inst.name)}</option>`)
+        .join('');
+      if (focusSel) focusSel.innerHTML = opts;
+      if (cmpA) cmpA.innerHTML = opts;
+      if (cmpB) cmpB.innerHTML = opts;
+      if (cmpB && state.count > 1) cmpB.value = '1';
+    }
+
+    function setView(view: string) {
+      root.dataset.view = view;
+
+      // Reset visibility for all cells before applying view filters.
+      cells.forEach((c, i) => (c.hidden = i >= state.count));
+
+      // Toggle which tab panels show inside each cell when the view forces a
+      // particular tab. We do it by simulating a click on the right tab button.
+      const forceTab = (tabId: string) => {
+        cells.forEach((c) => {
+          const btn = c.querySelector(`[data-tab-target="${tabId}"]`) as HTMLElement | null;
+          btn?.click();
+        });
+      };
+
+      // Hide / show grid columns count by tweaking grid template.
+      grid.classList.remove('grid-cols-1', 'lg:grid-cols-2', 'xl:grid-cols-3');
+      grid.classList.add('grid-cols-1', 'lg:grid-cols-2', 'xl:grid-cols-3');
+
+      subToolbar.classList.add('hidden');
+      subToolbar.classList.remove('flex');
+      focusSel?.classList.add('hidden');
+      cmpA?.classList.add('hidden');
+      cmpB?.classList.add('hidden');
+      cmpVs.classList.add('hidden');
+
+      switch (view) {
+        case 'grid':
+          break;
+        case 'code':
+          forceTab('code');
+          break;
+        case 'result':
+          forceTab('result');
+          break;
+        case 'prompt':
+          forceTab('prompt');
+          break;
+        case 'focus': {
+          subToolbar.classList.remove('hidden');
+          subToolbar.classList.add('flex');
+          subLabel.textContent = 'Focus on:';
+          focusSel?.classList.remove('hidden');
+          const idx = Number(focusSel?.value ?? 0);
+          cells.forEach((c, i) => (c.hidden = i !== idx));
+          // One column on focus.
+          grid.classList.remove('lg:grid-cols-2', 'xl:grid-cols-3');
+          break;
+        }
+        case 'compare': {
+          subToolbar.classList.remove('hidden');
+          subToolbar.classList.add('flex');
+          subLabel.textContent = 'Compare:';
+          cmpA?.classList.remove('hidden');
+          cmpB?.classList.remove('hidden');
+          cmpVs.classList.remove('hidden');
+          const a = Number(cmpA?.value ?? 0);
+          const b = Number(cmpB?.value ?? 1);
+          cells.forEach((c, i) => (c.hidden = i !== a && i !== b));
+          grid.classList.remove('xl:grid-cols-3');
+          break;
+        }
+      }
+
+      // Mark active button.
+      $$('[data-view-btn]').forEach((b) => {
+        b.dataset.active = String((b as HTMLElement).dataset.viewBtn === view);
+      });
+    }
+
+    $$('[data-view-btn]').forEach((btn) => {
+      btn.addEventListener('click', () => setView((btn as HTMLElement).dataset.viewBtn!));
+    });
+    focusSel?.addEventListener('change', () => setView('focus'));
+    cmpA?.addEventListener('change', () => setView('compare'));
+    cmpB?.addEventListener('change', () => setView('compare'));
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  Reto title autosave
+     * ────────────────────────────────────────────────────────────────── */
+
+    $('#reto-name')?.addEventListener('input', (e) => {
+      state.reto = (e.target as HTMLInputElement).value;
+      scheduleSave();
+    });
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  Share / Export
+     * ────────────────────────────────────────────────────────────────── */
+
+    $('#action-share')?.addEventListener('click', async () => {
+      const url = await (window as any).GridLabShare.share(state);
+      flashIndicator('Link copied to clipboard');
+      console.log('[gridlab] share url:', url);
+    });
+
+    $('#action-export')?.addEventListener('click', () => {
+      const blob = new Blob([buildExportHtml(state)], { type: 'text/html' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `gridlab-${slugify(state.reto || 'lab')}.html`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  Monaco lazy-load on first "Code" tab activation
+     * ────────────────────────────────────────────────────────────────── */
+
+    let monacoLoading: Promise<any> | null = null;
+    function loadMonaco(): Promise<any> {
+      if ((window as any).monaco) return Promise.resolve((window as any).monaco);
+      if (monacoLoading) return monacoLoading;
+      monacoLoading = new Promise((resolve, reject) => {
+        // AMD loader from the official CDN.
+        const loaderScript = document.createElement('script');
+        loaderScript.src = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.50.0/min/vs/loader.js';
+        loaderScript.onload = () => {
+          const req = (window as any).require;
+          req.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.50.0/min/vs' } });
+          req(['vs/editor/editor.main'], () => resolve((window as any).monaco));
+        };
+        loaderScript.onerror = reject;
+        document.head.appendChild(loaderScript);
+      });
+      return monacoLoading;
+    }
+
+    /** Upgrade a textarea inside a cell into a Monaco instance (once). */
+    async function upgradeToMonaco(cell: HTMLElement, index: number) {
+      if (cell.dataset.monaco === 'ready') return;
+      cell.dataset.monaco = 'loading';
+      try {
+        const monaco = await loadMonaco();
+        const wrap = $('.instance-code-wrap', cell) as HTMLElement | null;
+        const ta = $<HTMLTextAreaElement>('.instance-code', cell);
+        if (!wrap || !ta) return;
+
+        // Hide the textarea but keep it in the DOM (acts as the "source of truth").
+        ta.style.display = 'none';
+
+        const host = document.createElement('div');
+        host.className = 'absolute inset-0 rounded-lg overflow-hidden border border-slate-800';
+        wrap.appendChild(host);
+
+        const editor = monaco.editor.create(host, {
+          value: state.instances[index].code,
+          language: 'html',
+          theme: 'vs-dark',
+          fontSize: 12,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          automaticLayout: true,
+          tabSize: 2,
+        });
+
+        editor.onDidChangeModelContent(() => {
+          const v = editor.getValue();
+          state.instances[index].code = v;
+          ta.value = v;
+          cell.dataset.resultDirty = 'true';
+          scheduleSave();
+        });
+
+        cell.dataset.monaco = 'ready';
+      } catch (err) {
+        console.warn('[gridlab] Monaco failed to load, keeping textarea:', err);
+        cell.dataset.monaco = 'failed';
+      }
+    }
+
+    document.addEventListener('tabchange', (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as { groupId: string; tabId: string };
+      if (detail.tabId !== 'code') return;
+      const cell = (ev.target as HTMLElement).closest('.instance') as HTMLElement | null;
+      if (!cell) return;
+      const idx = Number(cell.dataset.instanceIndex);
+      upgradeToMonaco(cell, idx);
+    });
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  Utilities
+     * ────────────────────────────────────────────────────────────────── */
+
+    async function copyToClipboard(text: string) {
+      try {
+        await navigator.clipboard.writeText(text);
+        flashIndicator('Copied');
+      } catch {
+        flashIndicator('Copy failed');
+      }
+    }
+
+    function flashIndicator(msg: string) {
+      if (!indicator) return;
+      indicator.textContent = msg;
+      indicator.style.opacity = '1';
+      window.setTimeout(() => (indicator.style.opacity = '0.4'), 1200);
+    }
+
+    /** Very small HTML pretty-printer. Good enough to make pasted code legible. */
+    function naiveFormatHtml(src: string): string {
+      const tokens = src.replace(/>\s*</g, '>\n<').split('\n');
+      let depth = 0;
+      const out: string[] = [];
+      for (const raw of tokens) {
+        const line = raw.trim();
+        if (!line) continue;
+        if (/^<\/[^>]+>/.test(line)) depth = Math.max(0, depth - 1);
+        out.push('  '.repeat(depth) + line);
+        if (
+          /^<[^!?][^>]*[^/]>$/.test(line) &&
+          !/^<(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)\b/i.test(line)
+        ) {
+          depth += 1;
+        }
+      }
+      return out.join('\n');
+    }
+
+    function slugify(s: string) {
+      return s
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '')
+        .slice(0, 50) || 'lab';
+    }
+
+    function escapeHtml(s: string) {
+      return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    /**
+     * Builds a self-contained .html file with the entire lab embedded.
+     * Useful for sharing labs without giving the recipient a long URL.
+     */
+    function buildExportHtml(s: LabState) {
+      const cellsHtml = s.instances
+        .map(
+          (inst, i) => `
+<section class="cell">
+  <h2>${escapeHtml(inst.name)} <span style="color:#64748b;font-weight:400;font-size:.75rem">#${i + 1}</span></h2>
+  <details><summary>Prompt</summary><pre>${escapeHtml(inst.prompt)}</pre></details>
+  <details><summary>Code</summary><pre>${escapeHtml(inst.code)}</pre></details>
+  <details open><summary>Result</summary>
+    <iframe sandbox="allow-scripts allow-same-origin" srcdoc="${escapeHtml(inst.code).replace(/"/g, '&quot;')}"></iframe>
+  </details>
+</section>`,
+        )
+        .join('\n');
+
+      return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(s.reto)} — IA GridLab export</title>
+<style>
+  body{font-family:Inter,system-ui,sans-serif;background:#020617;color:#e2e8f0;margin:0;padding:24px}
+  h1{margin:0 0 8px;font-size:1.5rem}
+  .muted{color:#64748b;font-size:.875rem;margin-bottom:24px}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(420px,1fr))}
+  .cell{border:1px solid #1e293b;border-radius:12px;padding:16px;background:#0f172a}
+  .cell h2{margin:0 0 12px;font-size:1rem}
+  details{margin-bottom:8px}
+  summary{cursor:pointer;color:#94a3b8;font-size:.875rem;margin-bottom:6px}
+  pre{background:#020617;padding:12px;border-radius:8px;overflow:auto;max-height:240px;font-size:.75rem;white-space:pre-wrap;word-break:break-word}
+  iframe{width:100%;height:320px;border:0;border-radius:8px;background:#fff}
+</style>
+</head><body>
+<h1>${escapeHtml(s.reto || 'IA GridLab export')}</h1>
+<p class="muted">${s.instances.length} AI · exported ${new Date(s.updated).toISOString()}</p>
+<div class="grid">${cellsHtml}</div>
+</body></html>`;
+    }
+
+    /* ──────────────────────────────────────────────────────────────────
+     *  Boot
+     * ────────────────────────────────────────────────────────────────── */
+    renderState();
+    setView('grid');
+  </script>
+
+  <!-- ─────── Lab-page styles ─────── -->
+  <style>
+    /* ── Background + stars layers ── */
+    #lab-bg {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background: radial-gradient(
+        ellipse 130% 100% at 50% 46%,
+        #00c896 0%,
+        #008a72 16%,
+        #003d30 40%,
+        #000c09 70%,
+        #000    100%
+      );
+    }
+    #lab-stars {
+      position: fixed; inset: 0; z-index: 1;
+      width: 100%; height: 100%; pointer-events: none;
+    }
+
+    /* ── Header ── */
+    .lab-header {
+      position: sticky; top: 0; z-index: 20;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .lab-header-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      height: 52px;
+      flex-wrap: wrap;
+    }
+
+    /* Logo link */
+    .lab-brand {
+      display: flex; align-items: center; gap: 8px;
+      text-decoration: none;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: .02em;
+      flex-shrink: 0;
+    }
+    .lab-brand strong { font-weight: 700; }
+    .lab-logo {
+      height: 26px;
+      width: auto;
+      object-fit: contain;
+      filter: drop-shadow(0 0 5px rgba(0,212,168,.25));
+    }
+    .lab-brand-text { display: none; }
+    @media (min-width: 640px) { .lab-brand-text { display: inline; } }
+    .lab-powered {
+      font-size: 10px;
+      color: rgba(255,255,255,0.35);
+      white-space: nowrap;
+      letter-spacing: .03em;
+      display: none;
+    }
+    @media (min-width: 640px) { .lab-powered { display: inline; } }
+    .lab-powered strong { color: #00d4a8; font-weight: 600; }
+
+    .lab-divider {
+      width: 1px; height: 20px;
+      background: rgba(255,255,255,0.1);
+      flex-shrink: 0;
+      display: none;
+    }
+    @media (min-width: 640px) { .lab-divider { display: block; } }
+
+    /* Editable challenge title */
+    .lab-title-group {
+      display: flex; align-items: center; gap: 6px;
+      flex: 1; min-width: 0;
+    }
+    .lab-title-input {
+      background: transparent;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.9);
+      outline: none;
+      padding: 3px 6px;
+      border-radius: 4px;
+      transition: background 140ms;
+      min-width: 0;
+      max-width: 220px;
+      font-family: inherit;
+    }
+    .lab-title-input:focus { background: rgba(255,255,255,0.07); }
+    .lab-title-input::placeholder { color: rgba(255,255,255,0.25); }
+    .lab-save-indicator {
+      font-size: 10px;
+      color: rgba(0, 212, 168, 0.7);
+      white-space: nowrap;
+      transition: opacity 300ms;
+    }
+
+    /* View-mode buttons */
+    .lab-viewbtns {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex-wrap: wrap;
+    }
+    .lab-sep {
+      width: 1px; height: 16px;
+      background: rgba(255,255,255,0.12);
+      margin: 0 4px;
+    }
+    .view-btn {
+      padding: 5px 10px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: rgba(255,255,255,0.45);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: color 120ms, background 120ms, border-color 120ms;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .view-btn:hover {
+      color: rgba(255,255,255,0.9);
+      background: rgba(255,255,255,0.07);
+    }
+    .view-btn[data-active="true"] {
+      color: #00d4a8;
+      background: rgba(0,212,168,0.1);
+      border-color: rgba(0,212,168,0.25);
+    }
+
+    /* Sub-toolbar (Focus / Compare) */
+    .lab-sub-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 16px;
+      border-top: 1px solid rgba(255,255,255,0.07);
+      background: rgba(0,0,0,0.3);
+      font-size: 12px;
+    }
+    .lab-sub-toolbar.flex { display: flex; }
+    .lab-sub-label { color: rgba(255,255,255,0.4); }
+    .lab-select {
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 5px;
+      padding: 3px 8px;
+      color: rgba(255,255,255,0.8);
+      font-size: 11px;
+      font-family: inherit;
+      outline: none;
+    }
+  </style>
+
+  <!-- ─────── Starfield for the lab page (same as landing, slightly dimmer) ─────── -->
+  <script is:inline>
+    /**
+     * White dot starfield for the lab view. Opacity is lower than the landing
+     * page (0.35 max vs 0.9) so it stays subtle behind the content-heavy grid.
+     */
+    (function () {
+      const COUNT = 140;
+      const canvas = document.getElementById('lab-stars');
+      if (!(canvas instanceof HTMLCanvasElement)) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      let W = 0, H = 0;
+      function makeStar() {
+        return {
+          x:     Math.random(),
+          y:     Math.random(),
+          r:     0.4 + Math.random() * 1.1,
+          phase: Math.random() * Math.PI * 2,
+          freq:  0.0003 + Math.random() * 0.0009,
+          base:  0.08 + Math.random() * 0.28,
+        };
+      }
+      const stars = Array.from({ length: COUNT }, makeStar);
+
+      function resize() {
+        W = canvas.width  = window.innerWidth;
+        H = canvas.height = window.innerHeight;
+      }
+      resize();
+      window.addEventListener('resize', resize, { passive: true });
+
+      function frame(ts) {
+        ctx.clearRect(0, 0, W, H);
+        for (const s of stars) {
+          const alpha = s.base * (0.4 + 0.6 * Math.sin(s.phase + ts * s.freq));
+          ctx.globalAlpha = Math.max(0, alpha);
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    })();
+  </script>
+</Layout>

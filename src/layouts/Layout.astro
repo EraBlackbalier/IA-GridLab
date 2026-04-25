@@ -1,0 +1,72 @@
+---
+/**
+ * Base layout for IA GridLab.
+ *
+ * Renders the <html>/<head>/<body> shell, sets dark mode by default,
+ * loads the Inter font from Google Fonts and exposes a single `<slot />`
+ * where individual pages inject their content.
+ *
+ * Props:
+ *   - title:       Tab title for the document.
+ *   - description: <meta name="description"> for SEO/social previews.
+ */
+export interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'IA GridLab — Compare AI-generated web code side by side',
+  description = 'Static playground to compare what multiple AIs produce when asked to code the same web challenge. Paste prompt, paste code, see live result.',
+} = Astro.props;
+---
+<!doctype html>
+<html lang="en" class="dark h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <meta name="generator" content={Astro.generator} />
+
+    <!-- Open Graph (basic, for nice link previews) -->
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+
+    <!-- Inter via Google Fonts. Preconnect first to shave a few ms. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title}</title>
+  </head>
+  <body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-accent/30 selection:text-white">
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  /*
+   * The HTML `hidden` attribute only sets `display:none` via the UA stylesheet,
+   * which loses to any Tailwind utility like `.flex` or `.grid`. We force it
+   * here so tab panels marked `hidden` actually disappear.
+   */
+  [hidden] { display: none !important; }
+
+  /* Smooth focus ring across the whole app — keep it subtle but visible. */
+  :focus-visible {
+    outline: 2px solid theme('colors.accent.DEFAULT');
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Custom scrollbars for the dark UI. */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: #020617; }
+  ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: #334155; }
+</style>

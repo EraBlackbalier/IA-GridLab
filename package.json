@@ -1,0 +1,20 @@
+{
+  "name": "ia-gridlab",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Static Astro app to compare web coding output from multiple AIs side by side.",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "astro": "^4.16.18",
+    "@astrojs/tailwind": "^5.1.4",
+    "@astrojs/check": "^0.9.4",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,522 @@
+---
+/**
+ * Landing page (`/`).
+ *
+ * Visual theme: radial teal gradient (black edges → bright teal center),
+ * white dot starfield on canvas, fullscreen centered layout.
+ *
+ * Shows a hero with two inputs:
+ *   1. Number of AIs to compare (1..6)
+ *   2. Challenge name (free text, e.g. "Snake Game")
+ *
+ * On submit generates a short random session id and redirects to:
+ *   /lab?id=<id>&count=<n>&reto=<challenge>
+ *
+ * No backend — id is client-side, scopes localStorage keys.
+ */
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="IA GridLab — Compare AI code generators">
+
+  <!--
+    Background layer: radial gradient (teal center → black edges) painted
+    on a full-viewport div so it never scrolls away.
+  -->
+  <div id="bg" aria-hidden="true"></div>
+
+  <!--
+    Star canvas: small white dot particles that twinkle independently.
+    pointer-events:none so the form stays fully interactive.
+  -->
+  <canvas id="stars" aria-hidden="true"></canvas>
+
+  <!-- ─────── Transparent top nav ─────── -->
+  <nav id="topnav">
+    <a href="/" class="nav-brand">
+      <img src="/logo.png" class="nav-logo" alt="IA GridLab logo" />
+      <span>IA<strong>GridLab</strong></span>
+      <span class="nav-powered">powered by <strong>Templee</strong></span>
+    </a>
+    <div class="nav-links">
+      <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+      <a href="#form">Nuevo lab</a>
+    </div>
+  </nav>
+
+  <!-- ─────── Main hero (fullscreen, centered) ─────── -->
+  <main id="hero">
+
+    <img src="/logo.png" class="hero-icon" alt="IA GridLab" />
+
+    <h1 class="hero-title">IA GridLab</h1>
+    <p class="hero-sub">Compara lo que cada IA codifica, lado a lado.</p>
+
+    <!-- ─────── Form ─────── -->
+    <form id="create-lab" id="form" class="hero-form">
+      <div class="form-row">
+        <div class="field">
+          <label for="count">¿Cuántas IAs?</label>
+          <input
+            id="count"
+            name="count"
+            type="number"
+            min="1"
+            max="6"
+            value="3"
+            required
+          />
+        </div>
+        <div class="field field-wide">
+          <label for="reto">Nombre del reto</label>
+          <input
+            id="reto"
+            name="reto"
+            type="text"
+            placeholder="Snake Game, landing animada, dashboard"
+            required
+          />
+        </div>
+      </div>
+      <button type="submit" class="hero-btn">Crear GridLab</button>
+    </form>
+
+    <!-- Scroll hint at the bottom -->
+    <div class="scroll-hint" aria-hidden="true">
+      <svg width="24" height="38" viewBox="0 0 24 38" fill="none">
+        <rect x="1" y="1" width="22" height="36" rx="11" stroke="white" stroke-opacity="0.4" stroke-width="1.5"/>
+        <rect x="10.5" y="7" width="3" height="7" rx="1.5" fill="white" opacity="0.5"/>
+      </svg>
+    </div>
+  </main>
+
+  <!-- ─────── How it works (below the fold) ─────── -->
+  <section id="how">
+    <h2>¿Cómo se usa?</h2>
+    <p class="section-sub">Seis pasos para sacarle el máximo provecho a IA GridLab.</p>
+    <div class="cards">
+      {[
+        {
+          n: '01',
+          t: 'Configura la sesión',
+          d: 'En la pantalla principal elige cuántas IAs quieres comparar (de 1 a 6) y escribe el nombre del reto, por ejemplo «Snake Game» o «Landing animada».',
+        },
+        {
+          n: '02',
+          t: 'Abre el lab',
+          d: 'Haz clic en «Crear GridLab». Se generará un id único de sesión y serás redirigido al laboratorio con todas las celdas listas para trabajar.',
+        },
+        {
+          n: '03',
+          t: 'Escribe o pega el prompt',
+          d: 'En la pestaña Prompt de cada celda escribe exactamente el texto que le enviaste a esa IA. Esto sirve como referencia para reproducir el experimento más adelante.',
+        },
+        {
+          n: '04',
+          t: 'Pega el código generado',
+          d: 'Ve a la pestaña Código y pega el HTML/CSS/JS que te devolvió la IA. El editor Monaco con resaltado de sintaxis se activa automáticamente al primer uso.',
+        },
+        {
+          n: '05',
+          t: 'Previsualiza en tiempo real',
+          d: 'Abre la pestaña Resultado para ver el código corriendo en un iframe sandboxed. Haz clic en Refresh para actualizar, Open para abrirlo en nueva pestaña o Fullscreen para maximizarlo.',
+        },
+        {
+          n: '06',
+          t: 'Compara y comparte',
+          d: 'Usa los botones de vista (Grid, Solo código, Solo resultado, Focus, 1v1) para analizar los resultados. Comparte el estado completo con un link o exporta un HTML autocontenido.',
+        },
+      ].map((s) => (
+        <div class="card">
+          <span class="card-num">{s.n}</span>
+          <h3>{s.t}</h3>
+          <p>{s.d}</p>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <!-- ─────── Advantages section ─────── -->
+  <section id="advantages">
+    <h2>¿Por qué IA GridLab?</h2>
+    <p class="section-sub">Construido para developers que quieren tomar decisiones basadas en evidencia.</p>
+    <div class="adv-grid">
+      {[
+        {
+          t: 'Cero backend',
+          d: 'Todo corre en tu navegador. No hay servidor que mantener, no hay base de datos, no hay costos de infraestructura.',
+        },
+        {
+          t: 'Autosave instantáneo',
+          d: 'El estado de cada sesión se guarda automáticamente en localStorage cada 2 segundos. Cierra el tab y al volver todo sigue ahí.',
+        },
+        {
+          t: 'Previews seguros',
+          d: 'Cada resultado corre en un iframe con sandbox estricto. El código de las IAs no puede acceder a tu sesión ni al DOM del lab.',
+        },
+        {
+          t: 'Editor Monaco',
+          d: 'El mismo motor de VS Code, cargado desde CDN solo cuando lo necesitas. Resaltado HTML/CSS/JS, indentación automática y formato con un click.',
+        },
+        {
+          t: 'Share links',
+          d: 'El estado completo del lab —prompts, código y nombres— se codifica en base64 en la URL. Un link y tu equipo ve exactamente lo mismo que tú.',
+        },
+        {
+          t: 'Exportación HTML',
+          d: 'Genera un archivo HTML autocontenido con prompts, código y previews embebidos. Perfecto para archivar benchmarks o enviar por email.',
+        },
+        {
+          t: 'Modos de vista',
+          d: 'Grid completo, solo código, solo resultado, foco en una IA o duelo 1v1. Cambia de modo con un click sin perder ningún dato.',
+        },
+        {
+          t: 'Deploy en segundos',
+          d: 'Al ser un sitio 100% estático (Astro output:static) se despliega gratis en Vercel, Netlify o GitHub Pages sin ninguna configuración extra.',
+        },
+      ].map((a) => (
+        <div class="adv-card">
+          <h3>{a.t}</h3>
+          <p>{a.d}</p>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <footer id="foot">
+    Construido con Astro · Tailwind · sin backend — MIT
+  </footer>
+
+  <!-- ─────── Styles ─────── -->
+  <style>
+    /* ── Reset & tokens ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --teal-bright: #00d4a8;
+      --teal-mid:    #009e7e;
+      --teal-deep:   #003d30;
+      --black:       #000000;
+      --white:       #ffffff;
+      --white70:     rgba(255,255,255,0.70);
+      --white40:     rgba(255,255,255,0.40);
+      --white15:     rgba(255,255,255,0.15);
+      --white08:     rgba(255,255,255,0.08);
+    }
+
+    body { background: var(--black); color: var(--white); font-family: 'Inter', sans-serif; }
+
+    /* ── Background gradient ── */
+    #bg {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background: radial-gradient(
+        ellipse 120% 90% at 50% 46%,
+        #00d4a8 0%,
+        #009e7e 18%,
+        #004d3c 42%,
+        #000e0a 72%,
+        #000    100%
+      );
+    }
+
+    /* ── Star canvas ── */
+    #stars {
+      position: fixed; inset: 0; z-index: 1;
+      width: 100%; height: 100%; pointer-events: none;
+    }
+
+    /* ── Top nav ── */
+    #topnav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 3.5rem;
+    }
+    .nav-brand {
+      display: flex; align-items: center; gap: .625rem;
+      text-decoration: none; color: var(--white);
+      font-size: .9rem; font-weight: 500; letter-spacing: .02em;
+    }
+    .nav-brand strong { font-weight: 700; }
+    .nav-logo {
+      height: 28px;
+      width: auto;
+      object-fit: contain;
+      filter: drop-shadow(0 0 6px rgba(0,212,168,.3));
+    }
+    .nav-powered {
+      font-size: .7rem;
+      color: var(--white40);
+      letter-spacing: .03em;
+      white-space: nowrap;
+      padding-left: .25rem;
+    }
+    .nav-powered strong { color: var(--teal-bright); font-weight: 600; }
+    .nav-links { display: flex; gap: 1.75rem; }
+    .nav-links a {
+      color: var(--white70); font-size: .85rem; text-decoration: none;
+      transition: color 140ms;
+    }
+    .nav-links a:hover { color: var(--white); }
+
+    /* ── Hero ── */
+    #hero {
+      position: relative; z-index: 10;
+      min-height: 100svh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center; padding: 5rem 1.5rem 4rem;
+    }
+
+    .hero-icon {
+      width: clamp(90px, 14vw, 140px);
+      height: auto;
+      object-fit: contain;
+      margin-bottom: 1.75rem;
+      filter: drop-shadow(0 0 40px rgba(0,212,168,.4));
+    }
+
+    .hero-title {
+      font-size: clamp(2.4rem, 7vw, 4.5rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1;
+      margin-bottom: .85rem;
+      text-shadow: 0 2px 30px rgba(0,0,0,.4);
+    }
+
+    .hero-sub {
+      font-size: clamp(1rem, 2.5vw, 1.2rem);
+      color: var(--white70);
+      margin-bottom: 2.5rem;
+      max-width: 38ch;
+    }
+
+    /* ── Form ── */
+    .hero-form {
+      width: 100%; max-width: 560px;
+      background: var(--white08);
+      border: 1px solid var(--white15);
+      border-radius: 14px;
+      padding: 1.5rem;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 130px 1fr;
+      gap: .875rem;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 480px) { .form-row { grid-template-columns: 1fr; } }
+
+    .field { display: flex; flex-direction: column; gap: .4rem; }
+
+    .field label {
+      font-size: .75rem;
+      font-weight: 500;
+      color: var(--white70);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .field input {
+      background: rgba(0,0,0,.35);
+      border: 1px solid var(--white15);
+      border-radius: 8px;
+      padding: .6rem .875rem;
+      font-size: .9rem;
+      color: var(--white);
+      font-family: inherit;
+      outline: none;
+      transition: border-color 150ms, box-shadow 150ms;
+      width: 100%;
+    }
+    .field input::placeholder { color: var(--white40); }
+    .field input:focus {
+      border-color: var(--teal-bright);
+      box-shadow: 0 0 0 2px rgba(0,212,168,.2);
+    }
+    .field input[type=number]::-webkit-inner-spin-button { opacity: .3; }
+
+    .hero-btn {
+      width: 100%;
+      padding: .75rem 1rem;
+      background: var(--white);
+      color: var(--teal-deep);
+      font-family: inherit;
+      font-size: .95rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: .02em;
+      transition: opacity 140ms, transform 100ms;
+    }
+    .hero-btn:hover { opacity: .92; }
+    .hero-btn:active { transform: scale(.98); }
+
+    /* ── Scroll hint ── */
+    .scroll-hint {
+      position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      animation: bob 2s ease-in-out infinite;
+    }
+    @keyframes bob {
+      0%,100% { transform: translateX(-50%) translateY(0); }
+      50%      { transform: translateX(-50%) translateY(6px); }
+    }
+
+    /* ── Shared section styles ── */
+    #how, #advantages {
+      position: relative; z-index: 10;
+      padding: 5rem 1.5rem;
+      max-width: 960px; margin: 0 auto;
+      text-align: center;
+    }
+    #how h2, #advantages h2 {
+      font-size: 1.75rem; font-weight: 700;
+      margin-bottom: .6rem; color: var(--white);
+    }
+    .section-sub {
+      font-size: .95rem;
+      color: var(--white40);
+      margin-bottom: 2.5rem;
+    }
+
+    /* ── How it works cards (2 columns on md, 3 on lg) ── */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      text-align: left;
+    }
+    .card {
+      background: var(--white08);
+      border: 1px solid var(--white15);
+      border-radius: 12px;
+      padding: 1.5rem;
+      backdrop-filter: blur(8px);
+      transition: border-color 200ms;
+    }
+    .card:hover { border-color: rgba(0,212,168,.35); }
+    .card-num {
+      display: inline-block;
+      font-size: .68rem; font-weight: 700;
+      letter-spacing: .12em;
+      color: var(--teal-bright);
+      margin-bottom: .65rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .card h3 { font-size: .95rem; font-weight: 700; margin-bottom: .5rem; color: var(--white); }
+    .card p  { font-size: .83rem; color: var(--white70); line-height: 1.65; }
+
+    /* ── Advantages grid (4 cols on xl) ── */
+    .adv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      text-align: left;
+    }
+    .adv-card {
+      background: var(--white08);
+      border: 1px solid var(--white15);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      backdrop-filter: blur(8px);
+      transition: border-color 200ms, background 200ms;
+    }
+    .adv-card:hover {
+      border-color: rgba(0,212,168,.3);
+      background: rgba(0,212,168,.05);
+    }
+    .adv-card h3 { font-size: .9rem; font-weight: 700; margin-bottom: .4rem; color: var(--white); }
+    .adv-card p  { font-size: .8rem; color: var(--white70); line-height: 1.6; }
+
+    /* ── Footer ── */
+    #foot {
+      position: relative; z-index: 10;
+      text-align: center;
+      padding: 1.5rem;
+      font-size: .75rem;
+      color: var(--white40);
+      border-top: 1px solid var(--white08);
+    }
+  </style>
+
+  <!-- ─────── White-dot starfield ─────── -->
+  <script is:inline>
+    /**
+     * Renders small white dot "stars" on a canvas.
+     * Each star has a random position, radius, and an independent sine-wave
+     * opacity so they twinkle asynchronously. No drift — they sit still and
+     * just shimmer, matching the reference design.
+     */
+    (function () {
+      const STAR_COUNT = 180;
+      const canvas = document.getElementById('stars');
+      if (!(canvas instanceof HTMLCanvasElement)) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      let W = 0, H = 0;
+
+      /** One star particle. */
+      function makeStar() {
+        return {
+          x:     Math.random(),
+          y:     Math.random(),
+          r:     0.5 + Math.random() * 1.2,       // radius px
+          phase: Math.random() * Math.PI * 2,
+          freq:  0.0004 + Math.random() * 0.001,  // twinkle frequency
+          base:  0.25 + Math.random() * 0.65,     // peak opacity
+        };
+      }
+
+      const stars = Array.from({ length: STAR_COUNT }, makeStar);
+
+      function resize() {
+        W = canvas.width  = window.innerWidth;
+        H = canvas.height = window.innerHeight;
+      }
+      resize();
+      window.addEventListener('resize', resize, { passive: true });
+
+      function frame(ts) {
+        ctx.clearRect(0, 0, W, H);
+        for (const s of stars) {
+          const alpha = s.base * (0.4 + 0.6 * Math.sin(s.phase + ts * s.freq));
+          ctx.globalAlpha = Math.max(0, alpha);
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    })();
+  </script>
+
+  <!-- ─────── Form submit ─────── -->
+  <script>
+    /** Generates a short, URL-friendly random id (8 chars, base36). */
+    function genId(): string {
+      const buf = new Uint8Array(6);
+      crypto.getRandomValues(buf);
+      return Array.from(buf, (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 8);
+    }
+
+    const form = document.getElementById('create-lab') as HTMLFormElement | null;
+    form?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const data  = new FormData(form);
+      const count = Math.max(1, Math.min(6, Number(data.get('count')) || 3));
+      const reto  = String(data.get('reto') || '').trim() || 'Sin título';
+
+      const id     = genId();
+      const params = new URLSearchParams({ id, count: String(count), reto });
+      window.location.href = `/lab?${params.toString()}`;
+    });
+  </script>
+</Layout>
