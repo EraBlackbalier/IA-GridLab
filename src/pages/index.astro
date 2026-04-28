@@ -39,7 +39,8 @@ import Layout from '../layouts/Layout.astro';
     </a>
     <div class="nav-links">
       <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
-      <a href="#create-lab">Nuevo lab</a>
+      <a href="#create-lab" data-i18n="nav_newlab">Nuevo lab</a>
+      <button id="lang-toggle" class="lang-toggle" title="Switch to English">EN</button>
     </div>
   </nav>
 
@@ -49,13 +50,13 @@ import Layout from '../layouts/Layout.astro';
     <img src="/logo.png" class="hero-icon" alt="IA GridLab" />
 
     <h1 class="hero-title">IA GridLab</h1>
-    <p class="hero-sub">Compara lo que cada IA codifica, lado a lado.</p>
+    <p class="hero-sub" data-i18n="hero_sub">Compara lo que cada IA codifica, lado a lado.</p>
 
     <!-- ─────── Form ─────── -->
     <form id="create-lab" class="hero-form">
       <div class="form-row">
         <div class="field">
-          <label for="count">¿Cuántas IAs?</label>
+          <label for="count" data-i18n="form_count_label">¿Cuántas IAs?</label>
           <input
             id="count"
             name="count"
@@ -67,17 +68,18 @@ import Layout from '../layouts/Layout.astro';
           />
         </div>
         <div class="field field-wide">
-          <label for="reto">Nombre del reto</label>
+          <label for="reto" data-i18n="form_reto_label">Nombre del reto</label>
           <input
             id="reto"
             name="reto"
             type="text"
             placeholder="Snake Game, landing animada, dashboard"
+            data-i18n-placeholder="form_reto_ph"
             required
           />
         </div>
       </div>
-      <button type="submit" class="hero-btn">Crear GridLab</button>
+      <button type="submit" class="hero-btn" data-i18n="form_submit">Crear GridLab</button>
     </form>
 
     <!-- Scroll hint at the bottom -->
@@ -94,45 +96,21 @@ import Layout from '../layouts/Layout.astro';
 
   <!-- ─────── How it works (below the fold) ─────── -->
   <section id="how">
-    <h2>¿Cómo se usa?</h2>
-    <p class="section-sub">Seis pasos para sacarle el máximo provecho a IA GridLab.</p>
+    <h2 data-i18n="how_title">¿Cómo se usa?</h2>
+    <p class="section-sub" data-i18n="how_sub">Seis pasos para sacarle el máximo provecho a IA GridLab.</p>
     <div class="cards">
       {[
-        {
-          n: '01',
-          t: 'Configura la sesión',
-          d: 'En la pantalla principal elige cuántas IAs quieres comparar (de 1 a 6) y escribe el nombre del reto, por ejemplo «Snake Game» o «Landing animada».',
-        },
-        {
-          n: '02',
-          t: 'Abre el lab',
-          d: 'Haz clic en «Crear GridLab». Se generará un id único de sesión y serás redirigido al laboratorio con todas las celdas listas para trabajar.',
-        },
-        {
-          n: '03',
-          t: 'Escribe o pega el prompt',
-          d: 'En la pestaña Prompt de cada celda escribe exactamente el texto que le enviaste a esa IA. Esto sirve como referencia para reproducir el experimento más adelante.',
-        },
-        {
-          n: '04',
-          t: 'Pega el código generado',
-          d: 'Ve a la pestaña Código y pega el HTML/CSS/JS que te devolvió la IA. El editor Monaco con resaltado de sintaxis se activa automáticamente al primer uso.',
-        },
-        {
-          n: '05',
-          t: 'Previsualiza en tiempo real',
-          d: 'Abre la pestaña Resultado para ver el código corriendo en un iframe sandboxed. Haz clic en Refresh para actualizar, Open para abrirlo en nueva pestaña o Fullscreen para maximizarlo.',
-        },
-        {
-          n: '06',
-          t: 'Compara y comparte',
-          d: 'Usa los botones de vista (Grid, Solo código, Solo resultado, Focus, 1v1) para analizar los resultados. Comparte el estado completo con un link o exporta un HTML autocontenido.',
-        },
+        { n: '01', k: '1' },
+        { n: '02', k: '2' },
+        { n: '03', k: '3' },
+        { n: '04', k: '4' },
+        { n: '05', k: '5' },
+        { n: '06', k: '6' },
       ].map((s) => (
         <div class="card">
           <span class="card-num">{s.n}</span>
-          <h3>{s.t}</h3>
-          <p>{s.d}</p>
+          <h3 data-i18n={`how_${s.k}_t`}>—</h3>
+          <p data-i18n={`how_${s.k}_d`}>—</p>
         </div>
       ))}
     </div>
@@ -140,52 +118,22 @@ import Layout from '../layouts/Layout.astro';
 
   <!-- ─────── Advantages section ─────── -->
   <section id="advantages">
-    <h2>¿Por qué IA GridLab?</h2>
-    <p class="section-sub">Construido para developers que quieren tomar decisiones basadas en evidencia.</p>
+    <h2 data-i18n="adv_title">¿Por qué IA GridLab?</h2>
+    <p class="section-sub" data-i18n="adv_sub">Construido para developers que quieren tomar decisiones basadas en evidencia.</p>
     <div class="adv-grid">
       {[
-        {
-          t: 'Cero backend',
-          d: 'Todo corre en tu navegador. No hay servidor que mantener, no hay base de datos, no hay costos de infraestructura.',
-        },
-        {
-          t: 'Autosave instantáneo',
-          d: 'El estado de cada sesión se guarda automáticamente en localStorage cada 2 segundos. Cierra el tab y al volver todo sigue ahí.',
-        },
-        {
-          t: 'Previews seguros',
-          d: 'Cada resultado corre en un iframe con sandbox estricto. El código de las IAs no puede acceder a tu sesión ni al DOM del lab.',
-        },
-        {
-          t: 'Editor Monaco',
-          d: 'El mismo motor de VS Code, cargado desde CDN solo cuando lo necesitas. Resaltado HTML/CSS/JS, indentación automática y formato con un click.',
-        },
-        {
-          t: 'Share links',
-          d: 'El estado completo del lab —prompts, código y nombres— se codifica en base64 en la URL. Un link y tu equipo ve exactamente lo mismo que tú.',
-        },
-        {
-          t: 'Exportación HTML',
-          d: 'Genera un archivo HTML autocontenido con prompts, código y previews embebidos. Perfecto para archivar benchmarks o enviar por email.',
-        },
-        {
-          t: 'Modos de vista',
-          d: 'Grid completo, solo código, solo resultado, foco en una IA o duelo 1v1. Cambia de modo con un click sin perder ningún dato.',
-        },
-        {
-          t: 'Deploy en segundos',
-          d: 'Al ser un sitio 100% estático (Astro output:static) se despliega gratis en Vercel, Netlify o GitHub Pages sin ninguna configuración extra.',
-        },
+        { k: '1' }, { k: '2' }, { k: '3' }, { k: '4' },
+        { k: '5' }, { k: '6' }, { k: '7' }, { k: '8' },
       ].map((a) => (
         <div class="adv-card">
-          <h3>{a.t}</h3>
-          <p>{a.d}</p>
+          <h3 data-i18n={`adv_${a.k}_t`}>—</h3>
+          <p data-i18n={`adv_${a.k}_d`}>—</p>
         </div>
       ))}
     </div>
   </section>
 
-  <footer id="foot">
+  <footer id="foot" data-i18n="footer">
     Construido con Astro · Tailwind · sin backend — MIT
   </footer>
 
@@ -259,6 +207,25 @@ import Layout from '../layouts/Layout.astro';
       transition: color 140ms;
     }
     .nav-links a:hover { color: var(--white); }
+
+    /* Language toggle button */
+    .lang-toggle {
+      padding: 3px 10px;
+      font-size: .75rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: .06em;
+      color: var(--teal-bright);
+      background: rgba(0,212,168,0.1);
+      border: 1px solid rgba(0,212,168,0.25);
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background 140ms, color 140ms;
+    }
+    .lang-toggle:hover {
+      background: rgba(0,212,168,0.2);
+      color: #fff;
+    }
 
     /* ── Hero ── */
     #hero {
@@ -446,6 +413,9 @@ import Layout from '../layouts/Layout.astro';
     }
   </style>
 
+  <!-- ─────── i18n: language switcher (must load before DOMContentLoaded) ─────── -->
+  <script src="/i18n.js" is:inline></script>
+
   <!-- ─────── White-dot starfield ─────── -->
   <script is:inline>
     /**
@@ -515,7 +485,10 @@ import Layout from '../layouts/Layout.astro';
       e.preventDefault();
       const data  = new FormData(form);
       const count = Math.max(1, Math.min(6, Number(data.get('count')) || 3));
-      const reto  = String(data.get('reto') || '').trim() || 'Sin título';
+      const i18n = (window as any).GridLabI18n;
+      const lang = i18n?.getLang?.() || 'es';
+      const defaultReto = i18n?.T?.[lang]?.form_default_reto || 'Sin título';
+      const reto  = String(data.get('reto') || '').trim() || defaultReto;
 
       const id     = genId();
       const params = new URLSearchParams({ id, count: String(count), reto });

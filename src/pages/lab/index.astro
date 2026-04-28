@@ -65,6 +65,7 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
             type="text"
             class="lab-title-input"
             placeholder="Untitled challenge"
+            data-i18n-placeholder="lab_placeholder"
           />
           <span id="save-indicator" class="lab-save-indicator"></span>
         </div>
@@ -81,6 +82,8 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
           <span class="lab-sep"></span>
           <button id="action-share"  class="view-btn">Share</button>
           <button id="action-export" class="view-btn">Export</button>
+          <span class="lab-sep"></span>
+          <button id="lang-toggle" class="view-btn lang-toggle-lab" title="Switch to English">EN</button>
         </div>
       </div>
 
@@ -115,7 +118,7 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
       <span id="cinema-reto" class="cinema-reto"></span>
       <span id="cinema-info" class="cinema-info"></span>
       <div class="cinema-header-actions">
-        <span class="cinema-hint">Arrow keys to navigate</span>
+        <span class="cinema-hint" data-i18n="lab_cinema_hint">Arrow keys to navigate</span>
         <button id="cinema-close" class="cinema-close-btn" title="Close (ESC)" aria-label="Close cinema mode">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           ESC
@@ -130,6 +133,9 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
       <div id="cinema-grid" class="cinema-grid"></div>
     </div>
   </div>
+
+  <!-- i18n: language switcher (must load before DOMContentLoaded) -->
+  <script src="/i18n.js" is:inline></script>
 
   <!-- share.js must load BEFORE the main script so window.GridLabShare exists. -->
   <script src="/share.js" is:inline></script>
@@ -959,6 +965,14 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
       flex-shrink: 0;
     }
     .lab-brand strong { font-weight: 700; }
+
+    /* Language toggle in the lab toolbar */
+    .lang-toggle-lab {
+      color: #00d4a8 !important;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      letter-spacing: .06em;
+    }
     .lab-logo {
       height: 26px;
       width: auto;
