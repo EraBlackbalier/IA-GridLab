@@ -33,10 +33,10 @@ export default {
         ],
       },
       colors: {
-        // Custom accent so we can swap brand color in one place.
+        // Custom accent — matches the teal theme used across all pages.
         accent: {
-          DEFAULT: '#8b5cf6', // violet-500
-          hover: '#7c3aed',   // violet-600
+          DEFAULT: '#00d4a8', // teal-bright
+          hover: '#009e7e',   // teal-mid
         },
       },
       boxShadow: {

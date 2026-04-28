@@ -77,6 +77,7 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
           <button data-view-btn="prompt"  class="view-btn">Prompts</button>
           <button data-view-btn="focus"   class="view-btn">Focus</button>
           <button data-view-btn="compare" class="view-btn">1v1</button>
+          <button id="action-cinema" class="view-btn">Cinema</button>
           <span class="lab-sep"></span>
           <button id="action-share"  class="view-btn">Share</button>
           <button id="action-export" class="view-btn">Export</button>
@@ -105,7 +106,32 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
     </section>
   </main>
 
-  <!-- Tiny script for the share button, served as a static asset. -->
+  <!-- ─────── Cinema Mode overlay (all instances at once, fullscreen) ─────── -->
+  <div id="cinema" class="cinema-overlay" hidden>
+    <!-- Top bar: logo + title + challenge name + instance count + close -->
+    <header class="cinema-header">
+      <img src="/logo.png" class="cinema-header-logo" alt="IA GridLab" />
+      <span class="cinema-brand">Cinema Mode</span>
+      <span id="cinema-reto" class="cinema-reto"></span>
+      <span id="cinema-info" class="cinema-info"></span>
+      <div class="cinema-header-actions">
+        <span class="cinema-hint">Arrow keys to navigate</span>
+        <button id="cinema-close" class="cinema-close-btn" title="Close (ESC)" aria-label="Close cinema mode">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          ESC
+        </button>
+      </div>
+    </header>
+    <!-- Wrapper: holds grid + centered logo watermark -->
+    <div class="cinema-body">
+      <!-- Logo watermark centered behind the grid -->
+      <img src="/logo.png" class="cinema-logo" alt="" aria-hidden="true" />
+      <!-- Grid of all instances — populated dynamically by JS -->
+      <div id="cinema-grid" class="cinema-grid"></div>
+    </div>
+  </div>
+
+  <!-- share.js must load BEFORE the main script so window.GridLabShare exists. -->
   <script src="/share.js" is:inline></script>
 
   <!--
@@ -114,12 +140,10 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
   -->
   <script>
     import {
-      keyFor,
       loadLab,
       saveLab,
       makeEmptyState,
       reconcileWithParams,
-      encodeState,
       type LabState,
     } from '../../lib/storage';
 
@@ -299,7 +323,10 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
       // contentDocument and guarantees scripts re-run cleanly.
       wrap.innerHTML = '';
       const iframe = document.createElement('iframe');
-      iframe.className = 'w-full h-full bg-white';
+      iframe.style.width = '100%';
+      iframe.style.height = '100%';
+      iframe.style.border = 'none';
+      iframe.style.background = '#ffffff';
       iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
       iframe.setAttribute('title', `Preview of ${state.instances[index].name}`);
       iframe.srcdoc = state.instances[index].code || EMPTY_DOC;
@@ -307,6 +334,9 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
       delete cell.dataset.resultDirty;
     }
 
+    /* ──────────────────────────────────────────────────────────────────
+     *  Empty iframe document
+     * ────────────────────────────────────────────────────────────────── */
     const EMPTY_DOC = `<!doctype html><html><body style="font-family:system-ui;color:#64748b;padding:1rem">Paste code in the "Code" tab to see the result here.</body></html>`;
 
     /* ──────────────────────────────────────────────────────────────────
@@ -498,7 +528,7 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
         ta.style.display = 'none';
 
         const host = document.createElement('div');
-        host.className = 'absolute inset-0 rounded-lg overflow-hidden border border-slate-800';
+        host.style.cssText = 'position:absolute;inset:0;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.12)';
         wrap.appendChild(host);
 
         const editor = monaco.editor.create(host, {
@@ -631,6 +661,249 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
 <div class="grid">${cellsHtml}</div>
 </body></html>`;
     }
+
+    /* ══════════════════════════════════════════════════════════════════
+     *  Cinema Mode
+     *
+     *  A fullscreen presentation view that renders ALL active AI
+     *  instances simultaneously. Each instance displays its generated
+     *  code running live inside a sandboxed iframe.
+     *
+     *  Layout strategy:
+     *    The grid is sized so that every card fills the viewport with
+     *    no scrolling. Both `--cinema-cols` and `--cinema-rows` CSS
+     *    custom properties are computed from the instance count so
+     *    each card stretches to fill an equal portion of the screen.
+     *
+     *  Layout table (count → cols × rows):
+     *    1 → 1×1   |  2 → 2×1   |  3 → 3×1
+     *    4 → 2×2   |  5 → 3×2   |  6 → 3×2
+     *
+     *  Controls:
+     *    - Open:   Click "Cinema" button in the toolbar.
+     *    - Close:  Press ESC or click the close button.
+     *    - Focus:  Arrow keys (←→↑↓) move a teal highlight between
+     *              cards. Click a card to focus it directly.
+     *    - The browser Fullscreen API is requested on open so the
+     *      entire viewport is used. If the user exits fullscreen via
+     *      the browser UI, cinema mode closes automatically.
+     *
+     *  A semi-transparent logo watermark is rendered behind the grid
+     *  (via a <img> absolutely centered in the body wrapper).
+     * ══════════════════════════════════════════════════════════════════ */
+
+    /** Root DOM references for Cinema Mode elements. */
+    const cinemaEl   = document.getElementById('cinema') as HTMLElement;
+    const cinemaGrid = document.getElementById('cinema-grid') as HTMLElement;
+    const cinemaReto = document.getElementById('cinema-reto') as HTMLElement;
+    const cinemaInfo = document.getElementById('cinema-info') as HTMLElement;
+
+    /** Whether cinema mode is currently active. */
+    let cinemaOpen  = false;
+
+    /** Index of the currently highlighted (focused) card. */
+    let cinemaFocus = 0;
+
+    /** References to all card DOM elements in the current cinema session. */
+    let cinemaCells: HTMLElement[] = [];
+
+    /** Current column count — cached so keyboard nav knows the layout. */
+    let cinemaCols  = 1;
+
+    /**
+     * Computes the optimal grid dimensions (columns × rows) for a given
+     * instance count so that every card fills the viewport without scroll.
+     *
+     * @param count - Number of active AI instances (1–6).
+     * @returns A tuple [cols, rows].
+     */
+    function cinemaLayout(count: number): [number, number] {
+      // Mapping designed for max visibility per card:
+      //   1 → 1×1   2 → 2×1   3 → 3×1   4 → 2×2   5 → 3×2   6 → 3×2
+      if (count <= 1) return [1, 1];
+      if (count === 2) return [2, 1];
+      if (count === 3) return [3, 1];
+      if (count === 4) return [2, 2];
+      return [3, 2]; // 5 or 6
+    }
+
+    /**
+     * Builds the cinema grid from scratch. Creates one card per active
+     * instance, each containing a label bar and a sandboxed iframe that
+     * runs the instance's code in real-time.
+     *
+     * Sets CSS custom properties `--cinema-cols` and `--cinema-rows` on
+     * the grid element so the CSS `grid-template-*` rules can size each
+     * cell to fill the entire viewport.
+     */
+    function cinemaRenderAll() {
+      cinemaGrid.innerHTML = '';
+      cinemaCells = [];
+
+      const count = state.count;
+      const [cols, rows] = cinemaLayout(count);
+      cinemaCols = cols;
+
+      // Expose layout to CSS so the grid fills 100% of available space
+      cinemaGrid.style.setProperty('--cinema-cols', String(cols));
+      cinemaGrid.style.setProperty('--cinema-rows', String(rows));
+
+      // Update header meta
+      cinemaReto.textContent = state.reto || 'Untitled';
+      cinemaInfo.textContent = `${count} instance${count > 1 ? 's' : ''}`;
+
+      for (let i = 0; i < count; i++) {
+        const inst = state.instances[i];
+
+        // ── Card wrapper ──
+        const card = document.createElement('div');
+        card.className = 'cinema-card' + (i === cinemaFocus ? ' focused' : '');
+        card.dataset.idx = String(i);
+
+        // ── Label bar (index + AI name) ──
+        const label = document.createElement('div');
+        label.className = 'cinema-card-label';
+        label.innerHTML =
+          `<span class="cinema-card-num">${String(i + 1).padStart(2, '0')}</span> ` +
+          escapeHtml(inst.name);
+        card.appendChild(label);
+
+        // ── Live iframe preview ──
+        const iframeWrap = document.createElement('div');
+        iframeWrap.className = 'cinema-iframe-wrap';
+
+        const iframe = document.createElement('iframe');
+        iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+        iframe.setAttribute('title', `Live preview of ${inst.name}`);
+        iframe.srcdoc = inst.code || [
+          '<!doctype html><html><body style="',
+          'font-family:system-ui;color:#94a3b8;',
+          'display:flex;align-items:center;justify-content:center;',
+          'height:100vh;margin:0',
+          '">No code yet</body></html>',
+        ].join('');
+
+        iframeWrap.appendChild(iframe);
+        card.appendChild(iframeWrap);
+
+        // Click any card to move the focus highlight to it
+        card.addEventListener('click', () => {
+          cinemaFocus = i;
+          cinemaUpdateFocus();
+        });
+
+        cinemaGrid.appendChild(card);
+        cinemaCells.push(card);
+      }
+    }
+
+    /**
+     * Refreshes the visual focus indicator across all cinema cards.
+     * The focused card receives a teal border + glow; all others reset.
+     */
+    function cinemaUpdateFocus() {
+      cinemaCells.forEach((c, i) => {
+        c.classList.toggle('focused', i === cinemaFocus);
+      });
+    }
+
+    /**
+     * Opens cinema mode:
+     *  1. Renders all instance cards into the cinema grid.
+     *  2. Shows the overlay with a fade-in transition.
+     *  3. Requests browser Fullscreen API for immersive viewing.
+     *  4. Locks body scroll to prevent background scrolling.
+     */
+    function openCinema() {
+      cinemaOpen  = true;
+      cinemaFocus = 0;
+      cinemaRenderAll();
+      cinemaEl.hidden = false;
+      requestAnimationFrame(() => {
+        cinemaEl.classList.add('open');
+        cinemaEl.requestFullscreen?.().catch(() => {
+          // Fullscreen may be blocked by browser policy — cinema still works.
+        });
+      });
+      document.body.style.overflow = 'hidden';
+    }
+
+    /**
+     * Closes cinema mode:
+     *  1. Fades out the overlay (CSS transition on opacity).
+     *  2. Exits browser fullscreen if active.
+     *  3. After the transition, hides the element and cleans up the grid.
+     *  4. Restores body scroll.
+     */
+    function closeCinema() {
+      cinemaOpen = false;
+      cinemaEl.classList.remove('open');
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.().catch(() => {});
+      }
+      setTimeout(() => {
+        cinemaEl.hidden = true;
+        cinemaGrid.innerHTML = '';
+      }, 260);
+      document.body.style.overflow = '';
+    }
+
+    // ── Event wiring ────────────────────────────────────────────────
+
+    /** Open cinema from the toolbar button. */
+    document.getElementById('action-cinema')?.addEventListener('click', openCinema);
+
+    /** Close cinema from the header close button. */
+    document.getElementById('cinema-close')?.addEventListener('click', closeCinema);
+
+    /**
+     * Auto-close cinema when the user exits fullscreen via the browser
+     * UI (e.g. pressing F11 or the native fullscreen exit button).
+     */
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && cinemaOpen) closeCinema();
+    });
+
+    /**
+     * Keyboard navigation inside cinema mode.
+     *
+     *  - Escape     → Close cinema.
+     *  - ArrowRight → Move focus to the next card (→).
+     *  - ArrowLeft  → Move focus to the previous card (←).
+     *  - ArrowDown  → Move focus one row down (↓).
+     *  - ArrowUp    → Move focus one row up (↑).
+     *
+     * Focus wraps are intentionally NOT implemented — hitting the edge
+     * of the grid simply stops, matching common presentation UX.
+     */
+    document.addEventListener('keydown', (e) => {
+      if (!cinemaOpen) return;
+
+      const count = state.count;
+
+      switch (e.key) {
+        case 'Escape':
+          closeCinema();
+          e.preventDefault();
+          break;
+        case 'ArrowRight':
+          if (cinemaFocus < count - 1) { cinemaFocus++; cinemaUpdateFocus(); }
+          e.preventDefault();
+          break;
+        case 'ArrowLeft':
+          if (cinemaFocus > 0) { cinemaFocus--; cinemaUpdateFocus(); }
+          e.preventDefault();
+          break;
+        case 'ArrowDown':
+          if (cinemaFocus + cinemaCols < count) { cinemaFocus += cinemaCols; cinemaUpdateFocus(); }
+          e.preventDefault();
+          break;
+        case 'ArrowUp':
+          if (cinemaFocus - cinemaCols >= 0) { cinemaFocus -= cinemaCols; cinemaUpdateFocus(); }
+          e.preventDefault();
+          break;
+      }
+    });
 
     /* ──────────────────────────────────────────────────────────────────
      *  Boot
@@ -775,9 +1048,9 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
       border-color: rgba(0,212,168,0.25);
     }
 
-    /* Sub-toolbar (Focus / Compare) */
+    /* Sub-toolbar (Focus / Compare) — hidden by default via .hidden class */
     .lab-sub-toolbar {
-      display: flex;
+      display: none;
       align-items: center;
       gap: 10px;
       padding: 6px 16px;
@@ -785,7 +1058,7 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
       background: rgba(0,0,0,0.3);
       font-size: 12px;
     }
-    .lab-sub-toolbar.flex { display: flex; }
+    .lab-sub-toolbar.flex { display: flex !important; }
     .lab-sub-label { color: rgba(255,255,255,0.4); }
     .lab-select {
       background: rgba(0,0,0,0.5);
@@ -796,6 +1069,227 @@ const seed = Array.from({ length: MAX_CELLS }, (_, i) => ({
       font-size: 11px;
       font-family: inherit;
       outline: none;
+    }
+
+    /* ══════════════════════════════════════════════════════════════════
+     *  Cinema Mode — fullscreen grid of ALL instances
+     *
+     *  Hierarchy:
+     *    .cinema-overlay          Fixed fullscreen backdrop (z-index 9999)
+     *      .cinema-header         Top bar with title, info, close button
+     *      .cinema-body           Flex child that fills remaining viewport
+     *        .cinema-logo         Centered watermark behind the grid
+     *        .cinema-grid         CSS Grid with --cinema-cols × --cinema-rows
+     *          .cinema-card ×N    One per active instance
+     *            .cinema-card-label   Name + index badge
+     *            .cinema-iframe-wrap  Contains the sandboxed iframe
+     *
+     *  The grid uses CSS custom properties (--cinema-cols, --cinema-rows)
+     *  set by JS to size every card proportionally so they fill 100% of
+     *  the available viewport — no scrollbar, every card fully visible.
+     * ══════════════════════════════════════════════════════════════════ */
+
+    /* ── Overlay: covers the entire screen ──
+     * Uses explicit 100vw/100vh so it fills the viewport even before
+     * the Fullscreen API kicks in. In fullscreen the browser overrides
+     * dimensions anyway, so this is a safe fallback. */
+    .cinema-overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 9999;
+      background: #050505;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      transition: opacity 280ms ease;
+    }
+    .cinema-overlay.open { opacity: 1; }
+
+    /* ── Header bar ── */
+    .cinema-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 8px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: rgba(0,0,0,0.7);
+      flex-shrink: 0;
+      z-index: 2;
+    }
+    /* Logo in the cinema header bar */
+    .cinema-header-logo {
+      height: 22px;
+      width: auto;
+      flex-shrink: 0;
+      opacity: 0.9;
+    }
+    .cinema-brand {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: #00d4a8;
+      flex-shrink: 0;
+    }
+    .cinema-reto {
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .cinema-info {
+      font-size: 11px;
+      color: rgba(255,255,255,0.4);
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .cinema-header-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .cinema-hint {
+      font-size: 11px;
+      color: rgba(255,255,255,0.25);
+      white-space: nowrap;
+    }
+    .cinema-close-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.6);
+      font-size: 11px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 140ms, color 140ms;
+    }
+    .cinema-close-btn:hover {
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+    }
+
+    /* ── Body wrapper: holds logo + grid, fills all remaining height ──
+     * flex:1 + min-height:0 lets this element consume whatever space
+     * the header doesn't use. position:relative creates the containing
+     * block for the absolutely-positioned grid and logo. */
+    .cinema-body {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* ── Centered logo watermark ──
+     * Sits behind the grid (z-index: 0) with low opacity so it acts
+     * as a subtle branded background visible through the card gaps. */
+    .cinema-logo {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: clamp(80px, 12vw, 160px);
+      height: auto;
+      opacity: 0.06;
+      pointer-events: none;
+      z-index: 0;
+      filter: grayscale(0.3);
+    }
+
+    /* ── Grid of cards ──
+     * IMPORTANT: The grid is absolutely positioned (inset:0) inside
+     * .cinema-body so it fills 100% of the available space without
+     * relying on percentage heights (which don't resolve against
+     * flex-computed sizes). This guarantees the grid always matches
+     * the body wrapper dimensions exactly.
+     *
+     * --cinema-cols and --cinema-rows are set by JS based on instance
+     * count. Every card gets an equal `1fr` share of both axes so all
+     * cards are proportionally sized and fill the entire screen. */
+    .cinema-grid {
+      --cinema-cols: 3;
+      --cinema-rows: 2;
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(var(--cinema-cols), 1fr);
+      grid-template-rows:    repeat(var(--cinema-rows), 1fr);
+      gap: 8px;
+      padding: 8px;
+    }
+
+    /* ── Individual card ──
+     * IMPORTANT: All .cinema-card* selectors use :global() because
+     * these elements are created dynamically by JavaScript, NOT by
+     * Astro's template engine. Without :global(), Astro's scoped
+     * styles add [data-astro-cid-xxx] to the selector, which won't
+     * match the JS-created elements. We scope under .cinema-grid
+     * (which IS in the template) for safety. */
+    .cinema-grid :global(.cinema-card) {
+      display: flex;
+      flex-direction: column;
+      border-radius: 10px;
+      border: 2px solid rgba(255,255,255,0.07);
+      background: rgba(255,255,255,0.03);
+      overflow: hidden;
+      min-height: 0;
+      transition: border-color 200ms ease, box-shadow 200ms ease;
+    }
+    /* Focused card: teal border + soft outer glow */
+    .cinema-grid :global(.cinema-card.focused) {
+      border-color: #00d4a8;
+      box-shadow: 0 0 0 1px #00d4a8, 0 0 30px rgba(0,212,168,0.12);
+    }
+
+    /* Label bar inside each card */
+    .cinema-grid :global(.cinema-card-label) {
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.85);
+      background: rgba(0,0,0,0.55);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    /* Monospace instance number badge */
+    .cinema-grid :global(.cinema-card-num) {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      color: #00d4a8;
+      letter-spacing: .08em;
+    }
+
+    /* Iframe wrapper: takes all remaining card height */
+    .cinema-grid :global(.cinema-iframe-wrap) {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+    }
+    /* Iframe stretches to fill its wrapper via absolute positioning */
+    .cinema-grid :global(.cinema-iframe-wrap iframe) {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #fff;
     }
   </style>
 

@@ -44,7 +44,7 @@ const {
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>{title}</title>
   </head>
-  <body class="min-h-full bg-slate-950 text-slate-100 font-sans antialiased selection:bg-accent/30 selection:text-white">
+  <body class="min-h-full bg-black text-white font-sans antialiased selection:bg-accent/30 selection:text-white">
     <slot />
   </body>
 </html>
@@ -66,7 +66,7 @@ const {
 
   /* Custom scrollbars for the dark UI. */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-track { background: #020617; }
-  ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 8px; }
-  ::-webkit-scrollbar-thumb:hover { background: #334155; }
+  ::-webkit-scrollbar-track { background: #000; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 </style>
